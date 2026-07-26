@@ -2,11 +2,8 @@ version: "3.9"
 
 services:
   vn-web:
-    image: vn-web:latest
+    image: ghcr.io/1098542053/vn-web-visual-novel-reader:latest
     container_name: vn-reader
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3000:3000"
