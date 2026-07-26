@@ -1,0 +1,17 @@
+# ── Resource data (manually deployed) ──────────────────────────────────
+# These are large binary files that must be manually placed on the server.
+# See docker-compose.yml for volume mount configuration.
+data/
+
+# ── Node.js ────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── OS artifacts ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ── Screenshots (generated during testing) ─────────────────────────────
+screenshot-*.png

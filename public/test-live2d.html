@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live2D Test v8 - PixiJS Live2D Display</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a14; color:#00ff41; font-family:'Courier New',monospace; padding:20px; }
+h1 { color:#00ff41; font-size:1.5rem; margin-bottom:4px; letter-spacing:0.1em; }
+.subtitle { color:#666; font-size:0.85rem; margin-bottom:15px; }
+#status { background:#111; border:1px solid #333; padding:8px 12px; margin-bottom:12px; font-size:0.85rem; }
+#status .label { color:#888; }
+#status .value { color:#00ff41; font-weight:bold; }
+#status .value.error { color:#ff4444; }
+#testArea { position:relative; width:100%; max-width:960px; aspect-ratio:16/9; background:#222; border:1px solid #444; margin:0 auto 12px; overflow:hidden; }
+#testArea canvas { width:100%; height:100%; display:block; }
+#controls { margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap; }
+.btn { background:#1a1a2e; color:#00ff41; border:1px solid #00ff41; padding:8px 18px; cursor:pointer; font-family:'Courier New',monospace; font-size:0.85rem; transition:all 0.15s; }
+.btn:hover { background:#00ff41; color:#0a0a14; }
+.btn:disabled { opacity:0.3; cursor:not-allowed; }
+.btn-danger { color:#ff4444; border-color:#ff4444; }
+.btn-danger:hover { background:#ff4444; color:#0a0a14; }
+#log { background:#0d0d1a; border:1px solid #333; padding:10px; height:350px; overflow-y:auto; font-size:0.78rem; line-height:1.6; }
+#log div { padding:1px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+#log .info { color:#00ff41; }
+#log .warn { color:#ffaa00; }
+#log .error { color:#ff4444; }
+#log .step { color:#4488ff; }
+#log .system { color:#aa66ff; }
+.log-count { margin-top:6px; text-align:right; font-size:0.75rem; color:#555; }
+</style>
+</head>
+<body>
+<h1>Live2D Test v8 - pixi-live2d-display</h1>
+<p class="subtitle">Model: l2d00003 | Cubism 2.1 via PixiJS plugin</p>
+<div id="status"><span class="label">Status: </span><span class="value" id="statusText">Loading...</span></div>
+<div id="testArea"><canvas id="l2dCanvas"></canvas></div>
+<div id="controls">
+  <button class="btn" id="btnStart" disabled>Start Test</button>
+  <button class="btn" id="btnIdle" disabled>loop</button>
+  <button class="btn" id="btnBlues" disabled>blues</button>
+  <button class="btn" id="btnJoy" disabled>joy</button>
+  <button class="btn" id="btnAnger" disabled>anger</button>
+  <button class="btn btn-danger" id="btnClear" disabled>Remove</button>
+</div>
+<div id="log"></div>
+<div class="log-count" id="logCount">0 entries</div>
+
+<!-- PixiJS v6 -->
+<script src="lib/pixi.min.js"></script>
+<!-- Cubism 2.1 + Cubism 4 Core (must load before pixi-live2d-display) -->
+<script src="lib/live2d.min.js"></script>
+<script src="lib/live2dcubismcore.min.js"></script>
+<!-- pixi-live2d-display -->
+<script src="lib/pixi-live2d-display.min.js"></script>
+
+<script>
+(function() {
+  'use strict';
+
+  var LOG = document.getElementById('log');
+  var ST  = document.getElementById('statusText');
+  var CV  = document.getElementById('l2dCanvas');
+  var LOG_CNT = document.getElementById('logCount');
+
+  var app = null;
+  var model = null;
+  var running = false;
+  var MID = 'l2d00003';
+  var ENTRIES = 0;
+
+  function log(c, m) {
+    var d = document.createElement('div');
+    d.className = c;
+    d.textContent = '[' + new Date().toISOString().substr(11,8) + '] ' + m;
+    LOG.appendChild(d);
+    LOG.scrollTop = LOG.scrollHeight;
+    ENTRIES++;
+    LOG_CNT.textContent = ENTRIES + ' entries';
+  }
+  function info(m)    { log('info', m); }
+  function warn(m)    { log('warn', 'WARN: ' + m); }
+  function error(m)   { log('error', 'ERROR: ' + m); }
+  function step(m)    { log('step', '>>> ' + m); }
+  function system(m)  { log('system', m); }
+  function setStatus(s, e) {
+    ST.textContent = s;
+    ST.className = e ? 'value error' : 'value';
+  }
+  function enableButtons(e) {
+    ['Start', 'Idle', 'Blues', 'Joy', 'Anger', 'Clear'].forEach(function(n) {
+      document.getElementById('btn' + n).disabled = !e;
+    });
+  }
+
+  // ─── Main test ──────────────────────────────────────────────
+  async function runTest() {
+    LOG.innerHTML = '';
+    ENTRIES = 0;
+    system('=== Test v8 (pixi-live2d-display) ===');
+
+    // 1. Check SDK
+    step('1/4: Checking SDK...');
+    if (!PIXI) { error('PIXI not found'); return; }
+    info('PIXI v' + PIXI.VERSION);
+    if (!PIXI.live2d) { error('PIXI.live2d not found - pixi-live2d-display not loaded'); return; }
+    info('PIXI.live2d OK');
+    info('Live2DModel: ' + typeof PIXI.live2d.Live2DModel);
+
+    // 2. Create PixiJS Application
+    step('2/4: Creating PixiJS Application...');
+    try {
+      var parent = CV.parentNode;
+      // Use CSS logical dimensions (parent.clientWidth/Height accounts for CSS sizing)
+      // Let PixiJS autoDensity handle device pixel ratio
+      var logicalW = parent.clientWidth;
+      var logicalH = parent.clientHeight;
+      info('Canvas logical: ' + logicalW + 'x' + logicalH);
+
+      app = new PIXI.Application({
+        view: CV,
+        width: logicalW,
+        height: logicalH,
+        backgroundColor: 0x14141e,
+        transparent: false,
+        antialias: true,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true
+      });
+      info('PixiJS App created OK');
+    } catch(e) {
+      error('PixiJS create: ' + e.message);
+      return;
+    }
+
+    // 3. Load Live2D Model
+    step('3/4: Loading Live2D model...');
+    try {
+      var modelUrl = '/live2d-model/' + MID + '/model.model.json';
+      info('Loading: ' + modelUrl);
+
+      model = await PIXI.live2d.Live2DModel.from(modelUrl);
+
+      // Enable auto-update so motions advance properly
+      model.autoUpdate = true;
+
+      // Center the model
+      model.anchor.set(0.5, 0.5);
+      model.position.set(app.screen.width / 2, app.screen.height / 2);
+
+      // Scale: fit model height to 85% of canvas height
+      // model.originalHeight is the logical height of the Live2D model
+      var modelH = model.height || model.internalModel ? model.internalModel.originalHeight : 2;
+      var fitScale = (app.screen.height * 0.85) / modelH;
+      model.scale.set(fitScale);
+       app.stage.addChild(model);
+
+       info('Model: ' + model.width.toFixed(1) + 'x' + model.height.toFixed(1) + ', scale=' + fitScale.toFixed(3));
+    } catch(e) {
+      error('Model load: ' + e.message);
+      if (e.stack) info('Stack: ' + e.stack.split('\n')[1]);
+      return;
+    }
+
+    // 4. Auto-play loop motion
+    step('4/4: Starting motion...');
+    try {
+      await model.motion('loop');
+      info('loop motion started');
+    } catch(e) {
+      warn('No loop motion: ' + e.message);
+    }
+
+    setStatus('RENDERING');
+    enableButtons(true);
+    document.getElementById('btnStart').disabled = true;
+    running = true;
+    system('=== TEST COMPLETE - Model should be visible ===');
+  }
+
+  function cleanup() {
+    info('Cleanup...');
+    if (model) {
+      try { model.destroy(); } catch(e) {}
+      model = null;
+    }
+    if (app) {
+      try { app.destroy(true, {children: true}); } catch(e) {}
+      app = null;
+    }
+    running = false;
+    setStatus('Cleaned');
+    enableButtons(false);
+    document.getElementById('btnStart').disabled = false;
+    info('Done');
+  }
+
+  // Button bindings
+  document.getElementById('btnStart').onclick = runTest;
+  document.getElementById('btnIdle').onclick = function() { playMotion('loop'); };
+  document.getElementById('btnBlues').onclick = function() { playMotion('blues'); };
+  document.getElementById('btnJoy').onclick = function() { playMotion('joy'); };
+  document.getElementById('btnAnger').onclick = function() { playMotion('anger'); };
+  document.getElementById('btnClear').onclick = cleanup;
+
+  // MotionPriority: NONE=0, IDLE=1, NORMAL=2, FORCE=3
+  function playMotion(name) {
+    if (!model) { warn('No model'); return; }
+    step('Motion: ' + name);
+    model.motion(name, undefined, 3).then(function() {
+      info('OK: ' + name);
+    }).catch(function(e) {
+      error('Motion: ' + e.message);
+    });
+  }
+
+  info('Test page loaded (v8)');
+  setStatus('Ready');
+  document.getElementById('btnStart').disabled = false;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BGM 功能自动测试</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a14; color: #c8c8d4; font-family: 'Consolas','Courier New',monospace; padding: 20px; }
+  h1 { color: #8af; border-bottom: 1px solid #334; padding-bottom: 8px; margin-bottom: 16px; font-size: 18px; }
+  h1 span { color: #6a6; font-size: 13px; }
+  #controls { margin-bottom: 16px; }
+  #controls button { background: #1a1a2e; color: #8af; border: 1px solid #335; padding: 8px 20px; cursor: pointer; font-family: inherit; font-size: 14px; }
+  #controls button:hover { background: #2a2a44; border-color: #8af; }
+  #controls button:disabled { opacity: .5; cursor: default; }
+  #controls .status { display: inline-block; margin-left: 16px; color: #888; }
+  #controls .status .pass { color: #6a6; }
+  #controls .status .fail { color: #c66; }
+  #stats { display: flex; gap: 20px; margin-bottom: 16px; font-size: 13px; }
+  #stats .stat-box { background: #111122; border: 1px solid #223; padding: 8px 14px; min-width: 100px; }
+  #stats .stat-box .num { font-size: 22px; font-weight: bold; }
+  #stats .stat-box .label { color: #888; font-size: 11px; }
+  #stats .stat-box.pass .num { color: #6a6; }
+  #stats .stat-box.fail .num { color: #c66; }
+  #stats .stat-box.total .num { color: #8af; }
+  #log { background: #08081a; border: 1px solid #1a1a30; padding: 12px; height: 400px; overflow-y: auto; font-size: 12px; line-height: 1.6; }
+  #log .pass { color: #6a6; }
+  #log .fail { color: #c66; }
+  #log .info { color: #88a; }
+  #log .warn { color: #ca6; }
+  #log .time { color: #446; margin-right: 6px; }
+</style>
+</head>
+<body>
+<h1>&#9835; BGM 功能自动测试 <span>检测音量、播放状态、文件可访问性</span></h1>
+<div id="controls">
+  <button id="btnStart" onclick="startTest()">&#9654; 开始测试</button>
+  <span class="status" id="statusText">就绪</span>
+</div>
+<div id="stats">
+  <div class="stat-box total"><div class="num" id="statTotal">0</div><div class="label">总 BGM</div></div>
+  <div class="stat-box pass"><div class="num" id="statPass">0</div><div class="label">通过</div></div>
+  <div class="stat-box fail"><div class="num" id="statFail">0</div><div class="label">失败</div></div>
+  <div class="stat-box"><div class="num" id="statVolume">-</div><div class="label">音量检测</div></div>
+</div>
+<div id="log"></div>
+
+<script>
+var bgmList = [
+  'bgm002','bgm006','bgm007','bgm008','bgm010','bgm011','bgm012','bgm014','bgm015','bgm016',
+  'bgm017','bgm018','bgm019','bgm020','bgm021','bgm023','bgm024','bgm027','bgm028','bgm029',
+  'bgm030','bgm031','bgm034','bgm035','bgm101','bgm102','bgm104','bgm105','bgm107','bgm113',
+  'bgm115','bgm117','bgm118','bgm126','bgm127'
+];
+var totalPass = 0, totalFail = 0, totalSkipped = 0;
+var logEl = document.getElementById('log');
+var audioCtx = null;
+var analyser = null;
+var volData = null;
+
+function log(msg, cls) {
+  var t = new Date();
+  var ts = t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0') + ':' + t.getSeconds().toString().padStart(2,'0');
+  logEl.innerHTML += '<div class="' + (cls||'info') + '"><span class="time">[' + ts + ']</span>' + msg + '</div>';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateStats() {
+  document.getElementById('statTotal').textContent = bgmList.length;
+  document.getElementById('statPass').textContent = totalPass;
+  document.getElementById('statFail').textContent = totalFail;
+}
+
+function setStatus(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+// 检查文件是否可访问 (HEAD请求)
+function checkAccess(url) {
+  return new Promise(function(resolve) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('HEAD', url, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        resolve(xhr.status === 200);
+      }
+    };
+    xhr.onerror = function() { resolve(false); };
+    xhr.send();
+  });
+}
+
+// 检测音频是否正在播放（通过音量分析）
+function checkAudioPlaying(audioEl, duration) {
+  return new Promise(function(resolve) {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      volData = new Uint8Array(analyser.frequencyBinCount);
+    }
+    // 连接音频元素到分析器
+    var source = audioCtx.createMediaElementSource(audioEl);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    var maxVol = 0;
+    var samples = 0;
+    var iv = setInterval(function() {
+      analyser.getByteFrequencyData(volData);
+      var sum = 0;
+      for (var i = 0; i < volData.length; i++) sum += volData[i];
+      var avg = sum / volData.length;
+      if (avg > maxVol) maxVol = avg;
+      samples++;
+      if (samples >= 10 || (duration && samples * 100 >= duration)) {
+        clearInterval(iv);
+        // 断开连接，以便下次使用
+        source.disconnect();
+        resolve(maxVol);
+      }
+    }, 100);
+  });
+}
+
+async function startTest() {
+  var btn = document.getElementById('btnStart');
+  btn.disabled = true;
+  totalPass = 0; totalFail = 0; totalSkipped = 0;
+  logEl.innerHTML = '';
+  updateStats();
+  setStatus('测试中...');
+
+  log('========================================', 'info');
+  log('BGM 功能自动测试开始', 'info');
+  log('BGM 总数: ' + bgmList.length, 'info');
+  log('========================================', 'info');
+
+  // 阶段1: 文件可访问性测试
+  log('--- [阶段1] 文件可访问性测试 ---', 'info');
+  for (var i = 0; i < bgmList.length; i++) {
+    var name = bgmList[i];
+    var url = '/bgm/' + name + '.ogg';
+    var accessible = await checkAccess(url);
+    if (accessible) {
+      log('PASS: ' + name + '.ogg 可访问 (200)', 'pass');
+      totalPass++;
+    } else {
+      log('FAIL: ' + name + '.ogg 不可访问', 'fail');
+      totalFail++;
+    }
+    updateStats();
+    await sleep(30);
+  }
+
+  // 阶段2: 播放与音量检测（抽样测试，避免全部播放耗时）
+  log('--- [阶段2] 播放与音量检测 (抽样: 前5个) ---', 'info');
+  var sampleCount = Math.min(5, bgmList.length);
+  for (var j = 0; j < sampleCount; j++) {
+    var name = bgmList[j];
+    var url = '/bgm/' + name + '.ogg';
+
+    var audio = new Audio();
+    audio.src = url;
+    audio.volume = 0.5;
+    audio.loop = false;
+
+    // 等待加载
+    var loaded = await new Promise(function(resolve) {
+      audio.addEventListener('canplaythrough', function() { resolve(true); }, {once: true});
+      audio.addEventListener('error', function() { resolve(false); }, {once: true});
+      audio.load();
+      // 3秒超时
+      setTimeout(function() { resolve(false); }, 3000);
+    });
+
+    if (!loaded) {
+      log('SKIP: ' + name + ' 无法加载，跳过播放检测', 'warn');
+      totalSkipped++;
+      continue;
+    }
+
+    // 播放并检测音量
+    try {
+      await audio.play();
+      log('INFO: ' + name + ' 开始播放', 'info');
+      var vol = await checkAudioPlaying(audio, 2000);
+      document.getElementById('statVolume').textContent = vol.toFixed(1);
+      if (vol > 5) {
+        log('PASS: ' + name + ' 音量检测 = ' + vol.toFixed(1) + ' (有声音)', 'pass');
+        totalPass++;
+      } else {
+        log('FAIL: ' + name + ' 音量检测 = ' + vol.toFixed(1) + ' (声音过低或无声音)', 'fail');
+        totalFail++;
+      }
+    } catch(e) {
+      log('FAIL: ' + name + ' 播放失败 - ' + e.message, 'fail');
+      totalFail++;
+    }
+
+    audio.pause();
+    audio.src = '';
+    await sleep(500);
+    updateStats();
+  }
+
+  // 阶段3: 循环播放测试
+  log('--- [阶段3] 循环播放测试 ---', 'info');
+  var loopTest = bgmList[0];
+  var loopUrl = '/bgm/' + loopTest + '.ogg';
+  var loopAudio = new Audio();
+  loopAudio.src = loopUrl;
+  loopAudio.loop = true;
+  loopAudio.volume = 0.3;
+
+  var loopLoaded = await new Promise(function(resolve) {
+    loopAudio.addEventListener('canplaythrough', function() { resolve(true); }, {once: true});
+    loopAudio.addEventListener('error', function() { resolve(false); }, {once: true});
+    loopAudio.load();
+    setTimeout(function() { resolve(false); }, 3000);
+  });
+
+  if (loopLoaded) {
+    try {
+      await loopAudio.play();
+      await sleep(500);
+      log('PASS: ' + loopTest + ' 循环播放启动成功', 'pass');
+      totalPass++;
+
+      // 检测循环播放时的音量
+      var loopVol = await checkAudioPlaying(loopAudio, 1000);
+      log('INFO: ' + loopTest + ' 循环音量 = ' + loopVol.toFixed(1), 'info');
+
+      // 停止循环
+      loopAudio.pause();
+      loopAudio.loop = false;
+      log('PASS: ' + loopTest + ' 循环停止成功', 'pass');
+      totalPass++;
+    } catch(e) {
+      log('FAIL: ' + loopTest + ' 循环播放失败 - ' + e.message, 'fail');
+      totalFail++;
+    }
+  } else {
+    log('SKIP: 循环播放测试 - ' + loopTest + ' 无法加载', 'warn');
+    totalSkipped++;
+  }
+
+  // 总结
+  log('========================================', 'info');
+  log('测试完成', 'info');
+  log('通过: ' + totalPass + ' | 失败: ' + totalFail + ' | 跳过: ' + totalSkipped, 'info');
+  log('========================================', 'info');
+
+  updateStats();
+  setStatus('测试完成 - 通过: ' + totalPass + ', 失败: ' + totalFail);
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

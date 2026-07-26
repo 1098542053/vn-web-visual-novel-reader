@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>剧本功能自动测试</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a14; color: #c8c8d4; font-family: 'Consolas','Courier New',monospace; padding: 20px; }
+  h1 { color: #8af; border-bottom: 1px solid #334; padding-bottom: 8px; margin-bottom: 16px; font-size: 18px; }
+  h1 span { color: #6a6; font-size: 13px; }
+  #controls { margin-bottom: 16px; }
+  #controls button { background: #1a1a2e; color: #8af; border: 1px solid #335; padding: 8px 20px; cursor: pointer; font-family: inherit; font-size: 14px; }
+  #controls button:hover { background: #2a2a44; border-color: #8af; }
+  #controls button:disabled { opacity: .5; cursor: default; }
+  #controls .status { display: inline-block; margin-left: 16px; color: #888; }
+  #controls select { background: #1a1a2e; color: #c8c8d4; border: 1px solid #335; padding: 8px; font-family: inherit; margin-left: 10px; }
+  #stats { display: flex; gap: 20px; margin-bottom: 16px; font-size: 13px; flex-wrap: wrap; }
+  #stats .stat-box { background: #111122; border: 1px solid #223; padding: 8px 14px; min-width: 100px; }
+  #stats .stat-box .num { font-size: 22px; font-weight: bold; }
+  #stats .stat-box .label { color: #888; font-size: 11px; }
+  #stats .stat-box.pass .num { color: #6a6; }
+  #stats .stat-box.fail .num { color: #c66; }
+  #stats .stat-box.total .num { color: #8af; }
+  #log { background: #08081a; border: 1px solid #1a1a30; padding: 12px; height: 400px; overflow-y: auto; font-size: 12px; line-height: 1.6; }
+  #log .pass { color: #6a6; }
+  #log .fail { color: #c66; }
+  #log .info { color: #88a; }
+  #log .warn { color: #ca6; }
+  #log .time { color: #446; margin-right: 6px; }
+  #textPreview { display: none; margin-top: 12px; background: #111122; border: 1px solid #223; padding: 12px; max-height: 200px; overflow-y: auto; font-size: 14px; line-height: 1.8; }
+  #textPreview .speaker { color: #8af; }
+  #textPreview .text { color: #ddd; }
+  #textPreview .line-num { color: #446; margin-right: 8px; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>&#128214; 剧本功能自动测试 <span>提取文本、验证数量、检查异常符号</span></h1>
+<div id="controls">
+  <button id="btnStart" onclick="startTest()">&#9654; 开始测试</button>
+  <select id="typeSelect">
+    <option value="Normal">角色剧情 (Normal)</option>
+    <option value="main">主线故事 (main)</option>
+    <option value="Event">事件剧情 (Event)</option>
+    <option value="R18">R18</option>
+  </select>
+  <span class="status" id="statusText">就绪</span>
+</div>
+<div id="stats">
+  <div class="stat-box total"><div class="num" id="statTotal">0</div><div class="label">剧本文件</div></div>
+  <div class="stat-box pass"><div class="num" id="statPass">0</div><div class="label">通过</div></div>
+  <div class="stat-box fail"><div class="num" id="statFail">0</div><div class="label">失败</div></div>
+  <div class="stat-box"><div class="num" id="statLines">0</div><div class="label">总行数</div></div>
+  <div class="stat-box"><div class="num" id="statTexts">0</div><div class="label">文本行</div></div>
+  <div class="stat-box"><div class="num" id="statIssues">0</div><div class="label">异常</div></div>
+</div>
+<div id="log"></div>
+<div id="textPreview"></div>
+
+<script>
+var totalPass = 0, totalFail = 0;
+var totalLines = 0, totalTexts = 0, totalIssues = 0;
+var logEl = document.getElementById('log');
+var previewEl = document.getElementById('textPreview');
+
+function log(msg, cls) {
+  var t = new Date();
+  var ts = t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0') + ':' + t.getSeconds().toString().padStart(2,'0');
+  logEl.innerHTML += '<div class="' + (cls||'info') + '"><span class="time">[' + ts + ']</span>' + msg + '</div>';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateStats() {
+  document.getElementById('statPass').textContent = totalPass;
+  document.getElementById('statFail').textContent = totalFail;
+  document.getElementById('statLines').textContent = totalLines;
+  document.getElementById('statTexts').textContent = totalTexts;
+  document.getElementById('statIssues').textContent = totalIssues;
+}
+
+function setStatus(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+// 获取剧本文件列表
+function getScenarioFiles(type) {
+  var typeMap = { 'Normal': 'Normal', 'main': 'main', 'Event': 'event', 'R18': 'r18' };
+  return fetch('/api/scenario-files/' + typeMap[type])
+    .then(function(r) { return r.json(); });
+}
+
+// 解析CSV行
+function splitCSV(line) {
+  var r = [], c = '', q = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { q = !q; }
+    else if (ch === ',' && !q) { r.push(c.trim()); c = ''; }
+    else { c += ch; }
+  }
+  r.push(c.trim());
+  return r;
+}
+
+// 检查文本是否存在异常
+function checkTextAnomalies(text, fileName, lineNum) {
+  var issues = [];
+
+  // 检查异常编号模式 (如 "xxxxx" 数字序列)
+  var numSeq = text.match(/\d{5,}/g);
+  if (numSeq) {
+    numSeq.forEach(function(n) {
+      // 排除正常的语音编号引用
+      if (!n.startsWith('vc') && !n.startsWith('va') && !n.startsWith('bgm')) {
+        issues.push('发现异常长数字序列: "' + n + '"');
+      }
+    });
+  }
+
+  // 检查多余符号
+  var weirdSymbols = text.match(/[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u0020-\u007e，。、；：？！「」『』（）【】《》—…·～ˇ¨、〃々〆]/g);
+  if (weirdSymbols) {
+    var uniqueSymbols = weirdSymbols.filter(function(s, i) { return weirdSymbols.indexOf(s) === i; });
+    if (uniqueSymbols.length > 0) {
+      issues.push('发现异常符号: [' + uniqueSymbols.join('') + ']');
+    }
+  }
+
+  // 检查空文本
+  if (!text.trim()) {
+    issues.push('文本内容为空');
+  }
+
+  // 检查是否包含乱码（常见乱码字符）
+  var garbled = text.match(/[鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€]/);
+  if (garbled) {
+    issues.push('包含乱码字符');
+  }
+
+  // 检查HTML标签是否完整
+  var brTags = text.match(/<br>/g);
+  if (brTags) {
+    // <br> 是正常的换行标签
+  }
+  var otherTags = text.match(/<[^>]+>/g);
+  if (otherTags) {
+    otherTags.forEach(function(tag) {
+      if (tag !== '<br>') {
+        issues.push('发现非标准HTML标签: ' + tag);
+      }
+    });
+  }
+
+  return issues;
+}
+
+async function startTest() {
+  var btn = document.getElementById('btnStart');
+  btn.disabled = true;
+  totalPass = 0; totalFail = 0;
+  totalLines = 0; totalTexts = 0; totalIssues = 0;
+  logEl.innerHTML = '';
+  previewEl.style.display = 'none';
+  updateStats();
+  setStatus('测试中...');
+
+  var type = document.getElementById('typeSelect').value;
+
+  log('========================================', 'info');
+  log('剧本功能自动测试开始 - 类型: ' + type, 'info');
+  log('========================================', 'info');
+
+  // 获取文件列表
+  var files = await getScenarioFiles(type);
+  document.getElementById('statTotal').textContent = files.length;
+  log('找到 ' + files.length + ' 个剧本文件', 'info');
+
+  if (files.length === 0) {
+    log('FAIL: 没有找到剧本文件', 'fail');
+    totalFail++;
+    updateStats();
+    setStatus('测试失败 - 没有找到剧本文件');
+    btn.disabled = false;
+    return;
+  }
+
+  // 测试每个剧本文件
+  var filePass = 0, fileFail = 0;
+  var fileIssues = {};
+  var allTexts = [];
+
+  for (var f = 0; f < files.length; f++) {
+    var fileName = files[f];
+    var url = '/scenario/' + type + '/' + fileName + '.txt';
+
+    var response = await fetch(url);
+    if (!response.ok) {
+      log('FAIL: ' + fileName + ' 无法访问 (HTTP ' + response.status + ')', 'fail');
+      fileFail++;
+      totalFail++;
+      updateStats();
+      continue;
+    }
+
+    var text = await response.text();
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    totalLines += lines.length;
+    log('FILE: ' + fileName + ' (' + lines.length + ' 行)', 'info');
+
+    var fileTextCount = 0;
+    var fileIssueCount = 0;
+    var fileIssues = [];
+
+    for (var l = 0; l < lines.length; l++) {
+      var line = lines[l];
+      if (line.startsWith('//') || !line.trim()) continue;
+
+      var parts = splitCSV(line);
+      var cmd = (parts[0] || '').trim().toLowerCase();
+
+      // 提取文本行
+      if (cmd === 'message' || cmd === 'msgvoicesync') {
+        fileTextCount++;
+        totalTexts++;
+
+        var speaker = '';
+        var textContent = '';
+
+        if (cmd === 'message') {
+          speaker = parts[1] || '';
+          // text = parts[2] ~ parts[length-2], faceIcon = parts[length-1]
+          textContent = parts.slice(2, parts.length - 1).join(',');
+        } else if (cmd === 'msgvoicesync') {
+          speaker = parts[2] || '';
+          textContent = parts.slice(3, parts.length - 2).join(',');
+        }
+
+        // 保存用于预览
+        allTexts.push({ file: fileName, line: l + 1, speaker: speaker, text: textContent });
+
+        // 检查异常
+        var issues = checkTextAnomalies(textContent, fileName, l + 1);
+        if (issues.length > 0) {
+          fileIssueCount += issues.length;
+          totalIssues += issues.length;
+          fileIssues.push({ line: l + 1, speaker: speaker, text: textContent, issues: issues });
+        }
+      }
+    }
+
+    var fileResult = '';
+    if (fileIssueCount === 0) {
+      fileResult = 'PASS: ' + fileName + ' (' + fileTextCount + ' 文本行, 0 异常)';
+      log(fileResult, 'pass');
+      filePass++;
+      totalPass++;
+    } else {
+      fileResult = 'FAIL: ' + fileName + ' (' + fileTextCount + ' 文本行, ' + fileIssueCount + ' 异常)';
+      log(fileResult, 'fail');
+      fileFail++;
+      totalFail++;
+      // 显示具体异常
+      fileIssues.forEach(function(issue) {
+        log('  L' + issue.line + ' [' + issue.speaker + '] ' + issue.text.substring(0, 60) + '...', 'warn');
+        issue.issues.forEach(function(is) {
+          log('    -> ' + is, 'fail');
+        });
+      });
+    }
+
+    await sleep(10);
+    updateStats();
+  }
+
+  // 显示文本预览（前10条）
+  previewEl.style.display = 'block';
+  previewEl.innerHTML = '<div style="color:#8af;margin-bottom:8px;font-size:13px;">&#128196; 文本预览 (前10条):</div>';
+  var previewCount = Math.min(10, allTexts.length);
+  for (var p = 0; p < previewCount; p++) {
+    var item = allTexts[p];
+    previewEl.innerHTML += '<div><span class="line-num">#' + (p+1) + '</span>' +
+      '<span class="speaker">[' + item.speaker + ']</span> ' +
+      '<span class="text">' + item.text.substring(0, 80) + '</span></div>';
+  }
+
+  // 总结
+  log('========================================', 'info');
+  log('测试完成', 'info');
+  log('类型: ' + type, 'info');
+  log('通过: ' + totalPass + ' | 失败: ' + totalFail, 'info');
+  log('总行数: ' + totalLines + ' | 文本行: ' + totalTexts + ' | 异常: ' + totalIssues, 'info');
+  log('--- 详细统计 ---', 'info');
+  log('文件通过: ' + filePass, 'pass');
+  log('文件失败: ' + fileFail, fileFail > 0 ? 'fail' : 'info');
+  log('文本异常: ' + totalIssues, totalIssues > 0 ? 'warn' : 'info');
+  log('========================================', 'info');
+
+  updateStats();
+  setStatus('测试完成 - 通过: ' + totalPass + ', 失败: ' + totalFail + ', 异常: ' + totalIssues);
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

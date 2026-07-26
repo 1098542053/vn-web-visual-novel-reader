@@ -1,0 +1,158 @@
+<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Video Test</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:monospace;padding:20px}
+h1{color:#00b4d8;margin-bottom:16px;font-size:1.2rem}
+#control-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+select{background:#16213e;color:#e0e0e0;border:1px solid #0f3460;padding:6px 12px;font-family:monospace;font-size:13px;cursor:pointer;min-width:160px}
+select:focus{border-color:#00b4d8;outline:none}
+button{background:#16213e;color:#e0e0e0;border:1px solid #0f3460;padding:6px 16px;font-family:monospace;font-size:13px;cursor:pointer}
+button:hover{border-color:#00b4d8}
+button:disabled{opacity:.4;cursor:default}
+#info{font-size:12px;color:#888;margin-bottom:8px;line-height:1.6}
+#info span{color:#00b4d8}
+video{display:block;width:100%;max-width:960px;background:#000;margin-bottom:12px}
+label{font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer}
+.log{font-size:11px;color:#555;white-space:pre-wrap;max-height:60px;overflow-y:auto;line-height:1.5}
+.status-ok{color:#00b4d8}
+.status-err{color:#e74c3c}
+</style></head><body>
+<h1>Video Playback Test</h1>
+<div id="control-bar">
+  <select id="scenarioSel"><option value="">-- Loading scenarios... --</option></select>
+  <select id="videoSel" disabled><option value="">-- Select scenario first --</option></select>
+  <button id="btnPlay" disabled>Play</button>
+  <button id="btnStop" disabled>Stop</button>
+  <label><input type="checkbox" id="chkLoop"> Loop</label>
+  <label><input type="checkbox" id="chkMuted" checked> Muted</label>
+</div>
+<div id="info"></div>
+<video id="player" controls></video>
+<div id="log" class="log">Loading video scenarios...</div>
+
+<script>
+(function(){
+  var dataStore = []; // { scenario, videos[] }
+  var scenarioSel = document.getElementById('scenarioSel');
+  var videoSel = document.getElementById('videoSel');
+  var player = document.getElementById('player');
+  var btnPlay = document.getElementById('btnPlay');
+  var btnStop = document.getElementById('btnStop');
+  var chkLoop = document.getElementById('chkLoop');
+  var chkMuted = document.getElementById('chkMuted');
+  var info = document.getElementById('info');
+  var log = document.getElementById('log');
+
+  function logMsg(m, isErr){
+    log.innerHTML = '<span class="'+(isErr?'status-err':'status-ok')+'">[LOG]</span> '+new Date().toLocaleTimeString()+' '+m;
+  }
+
+  // Load video scenarios from API
+  fetch('/api/video-scenarios')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      dataStore = data;
+      scenarioSel.innerHTML = '<option value="">-- Select Scenario --</option>';
+      data.forEach(function(item){
+        var opt = document.createElement('option');
+        opt.value = item.scenario;
+        opt.textContent = item.scenario + ' (' + item.videos.length + ')';
+        scenarioSel.appendChild(opt);
+      });
+      logMsg('Loaded ' + data.length + ' scenarios with video files.');
+    })
+    .catch(function(e){
+      scenarioSel.innerHTML = '<option value="">-- Load failed --</option>';
+      logMsg('Fetch error: ' + e.message, true);
+    });
+
+  scenarioSel.addEventListener('change', function(){
+    var sid = scenarioSel.value;
+    videoSel.innerHTML = '<option value="">-- Select video --</option>';
+    videoSel.disabled = true;
+    btnPlay.disabled = true;
+    btnStop.disabled = true;
+    info.textContent = '';
+    player.removeAttribute('src');
+    if (!sid) return;
+
+    var item = dataStore.find(function(d){ return d.scenario === sid; });
+    if (!item || !item.videos.length){
+      logMsg('No videos for ' + sid, true);
+      return;
+    }
+    item.videos.forEach(function(v){
+      var opt = document.createElement('option');
+      var name = v.replace('.webm','');
+      opt.value = name;
+      opt.textContent = name;
+      videoSel.appendChild(opt);
+    });
+    videoSel.disabled = false;
+    logMsg('Found ' + item.videos.length + ' videos for ' + sid);
+  });
+
+  videoSel.addEventListener('change', function(){
+    var sid = scenarioSel.value, vid = videoSel.value;
+    if (sid && vid){
+      var url = '/video/' + sid + '/' + vid + '.webm';
+      player.src = url;
+      player.load();
+      btnPlay.disabled = false;
+      btnStop.disabled = true;
+      info.innerHTML = 'URL: <span>' + url + '</span>';
+    } else {
+      btnPlay.disabled = true;
+      btnStop.disabled = true;
+    }
+  });
+
+  player.addEventListener('loadedmetadata', function(){
+    info.innerHTML =
+      'Video: <span>' + player.src.split('/').slice(-2).join('/') + '</span> | ' +
+      'Res: <span>' + player.videoWidth + 'x' + player.videoHeight + '</span> | ' +
+      'Duration: <span>' + player.duration.toFixed(1) + 's</span>';
+    logMsg('Loaded: ' + player.src.split('/').pop());
+  });
+
+  player.addEventListener('error', function(){
+    logMsg('Error loading video', true);
+    info.innerHTML = '<span class="status-err">Load failed</span>';
+    btnPlay.disabled = true;
+  });
+
+  btnPlay.addEventListener('click', function(){
+    if (!player.src) return;
+    player.loop = chkLoop.checked;
+    player.muted = chkMuted.checked;
+    player.play().then(function(){
+      btnPlay.disabled = true;
+      btnStop.disabled = false;
+      logMsg('Playing' + (chkLoop.checked ? ' (loop)' : ''));
+    }).catch(function(e){
+      logMsg('Play failed: ' + e.message, true);
+    });
+  });
+
+  btnStop.addEventListener('click', function(){
+    player.pause();
+    player.currentTime = 0;
+    btnPlay.disabled = false;
+    btnStop.disabled = true;
+    logMsg('Stopped');
+  });
+
+  player.addEventListener('ended', function(){
+    if (!chkLoop.checked){ btnPlay.disabled = false; btnStop.disabled = true; }
+  });
+
+  // Space key toggle play/stop
+  document.addEventListener('keydown', function(e){
+    if (e.key === ' ' && e.target === document.body){
+      e.preventDefault();
+      if (!btnPlay.disabled) btnPlay.click();
+      else if (!btnStop.disabled) btnStop.click();
+    }
+  });
+})();
+</script>
+</body></html>

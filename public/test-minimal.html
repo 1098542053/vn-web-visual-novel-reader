@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Live2D Cubism 4 Test</title>
+<style>
+body { background:#111; color:#0f0; font-family:monospace; padding:10px; }
+canvas { display:block; margin:10px 0; border:1px solid #333; }
+.btn { background:#333; color:#0f0; border:1px solid #0f0; padding:8px 20px; cursor:pointer; }
+.btn:hover { background:#0f0; color:#000; }
+#log { max-height:400px; overflow:auto; font-size:13px; background:#1a1a1a; padding:10px; }
+</style>
+</head>
+<body>
+<h2>Live2D Cubism 4 Test</h2>
+<button class="btn" onclick="startTest()">开始测试</button>
+<div id="cv-container" style="width:854px;height:480px;border:1px solid #333;background:#222;margin:10px 0;position:relative;"></div>
+<div id="log"></div>
+
+<script src="lib/pixi.min.js"></script>
+<script src="lib/live2dcubismcore.min.js"></script>
+<script src="lib/pixi-live2d-display.min.js"></script>
+<script>
+var log = document.getElementById('log');
+var container = document.getElementById('cv-container');
+function L(m) { log.innerHTML += m + '<br>'; console.log(m); }
+
+function startTest() {
+  log.innerHTML = '';
+  L('=== Cubism 4 Test ===');
+  
+  // Check PIXI
+  L('PIXI: ' + (typeof PIXI !== 'undefined'));
+  L('PIXI.live2d: ' + (typeof PIXI.live2d !== 'undefined'));
+  L('Live2DCubismCore: ' + (typeof Live2DCubismCore !== 'undefined'));
+  
+  if (typeof Live2DCubismCore !== 'undefined') {
+    L('Core ver: ' + (Live2DCubismCore.Version || Live2DCubismCore.csmGetVersion()));
+  }
+  
+  // Create PIXI app
+  var app = new PIXI.Application({
+    width: 854,
+    height: 480,
+    backgroundColor: 0x33334c,
+    antialias: true,
+    resolution: 1
+  });
+  container.appendChild(app.view);
+  L('PIXI app created');
+  
+  // Load model
+  var MODEL_ID = 'l2d00003';
+  var modelUrl = '/live2d-model/' + MODEL_ID + '/model.model.json';
+  L('Loading: ' + modelUrl);
+  
+  PIXI.live2d.Live2DModel.from(modelUrl)
+    .then(function(model) {
+      L('Model loaded OK');
+      L('Model type: ' + (model.internalModel ? 'Cubism 4' : 'unknown'));
+      L('Model bounds: ' + model.width + 'x' + model.height);
+      
+      model.anchor.set(0.5, 0.5);
+      model.position.set(427, 240);
+      model.scale.set(1.0);
+      
+      app.stage.addChild(model);
+      L('Model added to stage');
+      
+      // Try playing a motion
+      setTimeout(function() {
+        L('Trying motion: loop');
+        model.motion('loop').then(function() {
+          L('Motion loop started');
+        }).catch(function(e) {
+          L('Motion error: ' + e.message);
+        });
+      }, 500);
+      
+      // Log status every second
+      var t = 0;
+      var interval = setInterval(function() {
+        t++;
+        L('Running... ' + t + 's (children: ' + app.stage.children.length + ')');
+        if (t >= 5) {
+          clearInterval(interval);
+          L('=== DONE ===');
+        }
+      }, 1000);
+    })
+    .catch(function(err) {
+      L('FAIL: ' + err.message);
+      L('Stack: ' + (err.stack || 'N/A'));
+    });
+}
+</script>
+</body>
+</html>

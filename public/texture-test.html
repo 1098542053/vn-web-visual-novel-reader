@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Texture Aspect Ratio Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #ccc; font-family: monospace; padding: 20px; }
+  h1 { font-size: 1.2rem; margin-bottom: 20px; color: #8af; }
+  .section { margin-bottom: 30px; }
+  .section h2 { font-size: 1rem; margin-bottom: 10px; color: #fa8; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+  .card { background: #1a1a1a; border: 1px solid #333; padding: 8px; }
+  .card label { display: block; font-size: 0.75rem; margin-top: 4px; text-align: center; }
+  .card .info { font-size: 0.7rem; color: #888; text-align: center; }
+  canvas { display: block; background: #222; image-rendering: pixelated; }
+  .controls { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .controls label { font-size: 0.85rem; }
+  .controls select, .controls input { background: #222; color: #ccc; border: 1px solid #444; padding: 4px 8px; font-size: 0.85rem; }
+  .controls button { background: #334; color: #8af; border: 1px solid #446; padding: 4px 12px; cursor: pointer; font-size: 0.85rem; }
+  .controls button:hover { background: #446; }
+  .nat { color: #4a4; font-weight: bold; }
+  .mismatch { color: #f44; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Texture Aspect Ratio Test — BG vs HCG</h1>
+
+<div class="controls">
+  <label>Image: <select id="imgSel"></select></label>
+  <label>Display W: <input type="number" id="dispW" value="800" min="100" step="50"></label>
+  <label>Display H: <input type="number" id="dispH" value="450" min="100" step="50"></label>
+  <button onclick="reload()">Reload</button>
+  <span id="status" style="font-size:0.8rem;color:#888"></span>
+</div>
+
+<div class="section">
+  <h2>Natural Size (1:1 pixel)</h2>
+  <div class="row" id="naturalContainer"></div>
+</div>
+
+<div class="section">
+  <h2>16:9 (800x450)</h2>
+  <div class="row" id="ratio16_9Container"></div>
+</div>
+
+<div class="section">
+  <h2>4:3 (800x600)</h2>
+  <div class="row" id="ratio4_3Container"></div>
+</div>
+
+<div class="section">
+  <h2>Stretch (800x800)</h2>
+  <div class="row" id="ratio1_1Container"></div>
+</div>
+
+<script>
+var allImages = [];
+
+// Collect all known images
+function collectImages() {
+  var list = [];
+  // BG images (sample)
+  var bgSamples = [
+    'bg019_10', 'bg015_30', 'bg001_10', 'bg010_10', 'bg020_10',
+    'bg005_10', 'bg007_10', 'bg022_10', 'bg026_10', 'bg033_10'
+  ];
+  bgSamples.forEach(function(n) { list.push({ name: n, url: '/texture/BG/' + n + '.png', type: 'BG' }); });
+
+  // HCG images
+  var hcgSamples = [
+    { folder: 'ev00003', file: 'ev00003_10' },
+    { folder: 'ev00003', file: 'ev00003_20' },
+    { folder: 'ev00003', file: 'ev00003_30' },
+    { folder: 'ev00003', file: 'ev00003_40' },
+  ];
+  hcgSamples.forEach(function(s) {
+    list.push({ name: s.folder + '/' + s.file, url: '/texture/HCG/' + s.folder + '/' + s.file + '.png', type: 'HCG' });
+  });
+
+  return list;
+}
+
+function populateSelect(list) {
+  var sel = document.getElementById('imgSel');
+  sel.innerHTML = '';
+  list.forEach(function(item, idx) {
+    var opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = '[' + item.type + '] ' + item.name;
+    sel.appendChild(opt);
+  });
+}
+
+function getDims() {
+  return {
+    w: parseInt(document.getElementById('dispW').value) || 800,
+    h: parseInt(document.getElementById('dispH').value) || 450
+  };
+}
+
+function renderImage(item, container, label, canvasW, canvasH) {
+  var card = document.createElement('div');
+  card.className = 'card';
+
+  var canvas = document.createElement('canvas');
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  canvas.style.width = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+
+  var ctx = canvas.getContext('2d');
+  var img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function() {
+    var natW = img.naturalWidth;
+    var natH = img.naturalHeight;
+    var natRatio = (natW / natH).toFixed(3);
+
+    // Draw image filling the canvas (may stretch)
+    ctx.drawImage(img, 0, 0, canvasW, canvasH);
+
+    // Draw crosshair at center
+    ctx.strokeStyle = 'rgba(255,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(canvasW / 2 - 10, canvasH / 2);
+    ctx.lineTo(canvasW / 2 + 10, canvasH / 2);
+    ctx.moveTo(canvasW / 2, canvasH / 2 - 10);
+    ctx.lineTo(canvasW / 2, canvasH / 2 + 10);
+    ctx.stroke();
+
+    // Determine if aspect ratio matches canvas ratio
+    var canvasRatio = canvasW / canvasH;
+    var ratioDiff = Math.abs(natRatio - canvasRatio);
+    var matchStr = ratioDiff < 0.02
+      ? '<span class="nat">✓ Ratio match</span>'
+      : '<span class="mismatch">✗ Ratio mismatch (' + natRatio + ' vs ' + canvasRatio.toFixed(3) + ')</span>';
+
+    card.querySelector('.info').innerHTML =
+      'Natural: ' + natW + 'x' + natH + ' (' + natRatio + ') ' + matchStr;
+
+    // Update status
+    document.getElementById('status').textContent = 'Last: ' + item.type + ' ' + item.name +
+      ' — ' + natW + 'x' + natH + ' ratio=' + natRatio;
+  };
+  img.onerror = function() {
+    ctx.fillStyle = '#500';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+    ctx.fillStyle = '#f88';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('404', canvasW / 2, canvasH / 2);
+    card.querySelector('.info').textContent = 'Failed to load: ' + item.url;
+  };
+  img.src = item.url;
+
+  card.appendChild(canvas);
+  var lbl = document.createElement('label');
+  lbl.textContent = label + ' (' + canvasW + 'x' + canvasH + ')';
+  card.appendChild(lbl);
+  var inf = document.createElement('div');
+  inf.className = 'info';
+  inf.textContent = 'Loading...';
+  card.appendChild(inf);
+  container.appendChild(card);
+}
+
+function reload() {
+  var sel = document.getElementById('imgSel');
+  var idx = parseInt(sel.value);
+  var item = allImages[idx];
+  if (!item) item = allImages[0];
+
+  var dims = getDims();
+
+  // Clear containers
+  ['naturalContainer', 'ratio16_9Container', 'ratio4_3Container', 'ratio1_1Container'].forEach(function(id) {
+    document.getElementById(id).innerHTML = '';
+  });
+
+  // Natural size: load image, then render at natural size
+  var natCard = document.createElement('div');
+  natCard.className = 'card';
+  var natCanvas = document.createElement('canvas');
+  var natCtx = natCanvas.getContext('2d');
+  var natImg = new Image();
+  natImg.crossOrigin = 'anonymous';
+  natImg.onload = function() {
+    var nw = natImg.naturalWidth;
+    var nh = natImg.naturalHeight;
+    natCanvas.width = Math.min(nw, 1200);
+    natCanvas.height = Math.min(nh, 900);
+    natCanvas.style.width = natCanvas.width + 'px';
+    natCanvas.style.height = natCanvas.height + 'px';
+    natCtx.drawImage(natImg, 0, 0);
+    natCard.querySelector('.info').textContent = 'Natural: ' + nw + 'x' + nh + ' ratio=' + (nw/nh).toFixed(3);
+  };
+  natImg.onerror = function() {
+    natCard.querySelector('.info').textContent = 'Failed to load';
+  };
+  natImg.src = item.url;
+  natCard.appendChild(natCanvas);
+  var natLbl = document.createElement('label');
+  natLbl.textContent = 'Natural';
+  natCard.appendChild(natLbl);
+  var natInf = document.createElement('div');
+  natInf.className = 'info';
+  natInf.textContent = 'Loading...';
+  natCard.appendChild(natInf);
+  document.getElementById('naturalContainer').appendChild(natCard);
+
+  // Render at different ratios
+  renderImage(item, document.getElementById('ratio16_9Container'), '16:9', dims.w, Math.round(dims.w * 9 / 16));
+  renderImage(item, document.getElementById('ratio4_3Container'), '4:3', dims.w, Math.round(dims.w * 3 / 4));
+  renderImage(item, document.getElementById('ratio1_1Container'), '1:1', dims.w, dims.w);
+}
+
+allImages = collectImages();
+populateSelect(allImages);
+reload();
+</script>
+</body>
+</html>

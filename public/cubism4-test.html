@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live2D 对照测试 - Cubism 4 vs Cubism 2.1</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a14;color:#00ff41;font-family:'Courier New',monospace;padding:15px}
+h2{color:#00ff41;margin-bottom:6px;font-size:1.2rem;text-align:center}
+.subtitle{text-align:center;color:#666;font-size:0.8rem;margin-bottom:12px}
+
+/* 左右双栏布局 */
+#container{display:flex;gap:12px;max-width:100%}
+.panel{flex:1;min-width:0;border:1px solid #333;padding:10px;background:#0d0d1a;border-radius:2px}
+.panel h3{color:#4488ff;font-size:0.95rem;margin-bottom:6px}
+.panel.c4 h3{color:#ff8844}
+.panel.c2 h3{color:#44ff88}
+.panel .wrap{position:relative;width:100%;aspect-ratio:4/3;background:#1a1a2e;border:1px solid #444;margin-bottom:8px}
+.panel .wrap canvas{width:100%;height:100%;display:block}
+.panel .ctrl{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.btn{background:#1a1a2e;color:#00ff41;border:1px solid #00ff41;padding:5px 10px;cursor:pointer;font-family:'Courier New',monospace;font-size:0.75rem}
+.btn:hover{background:#00ff41;color:#0a0a14}
+.btn:disabled{opacity:0.3;cursor:not-allowed}
+.btn-rm{color:#ff4444;border-color:#ff4444}
+.btn-rm:hover{background:#ff4444;color:#0a0a14}
+.panel .log{background:#0a0a14;border:1px solid #222;padding:6px;height:150px;overflow-y:auto;font-size:0.7rem;line-height:1.4}
+.panel .log div{border-bottom:1px solid rgba(255,255,255,0.02);padding:1px 0}
+.c4 .log .info{color:#ffaa44}.c4 .log .step{color:#ff8844}
+.c2 .log .info{color:#44ff88}.c2 .log .step{color:#22dd66}
+.log .error{color:#ff4444}
+</style>
+</head>
+<body>
+<h2>Live2D Motion 对照测试</h2>
+<p class="subtitle">左: Koharu (Cubism 4, moc3) &nbsp;|&nbsp; 右: l2d00003 (Cubism 2.1, moc)</p>
+
+<div id="container">
+  <!-- ─── 左栏: Cubism 4 ─── -->
+  <div class="panel c4">
+    <h3>Cubism 4 — Koharu</h3>
+    <div class="wrap"><canvas id="cv4"></canvas></div>
+    <div class="ctrl">
+      <button class="btn" id="c4Load">Load</button>
+      <button class="btn" id="c4M0" disabled>Body[0]</button>
+      <button class="btn" id="c4M1" disabled>Face1[1]</button>
+      <button class="btn" id="c4M2" disabled>Face2[2]</button>
+      <button class="btn btn-rm" id="c4Rm" disabled>Remove</button>
+    </div>
+    <div class="log" id="c4Log"></div>
+  </div>
+
+  <!-- ─── 右栏: Cubism 2.1 ─── -->
+  <div class="panel c2">
+    <h3>Cubism 2.1 — l2d00003</h3>
+    <div class="wrap"><canvas id="cv2"></canvas></div>
+    <div class="ctrl">
+      <button class="btn" id="c2Load">Load</button>
+      <button class="btn" id="c2Loop" disabled>loop</button>
+      <button class="btn" id="c2Blues" disabled>blues</button>
+      <button class="btn" id="c2Joy" disabled>joy</button>
+      <button class="btn" id="c2Anger" disabled>anger</button>
+      <button class="btn btn-rm" id="c2Rm" disabled>Remove</button>
+    </div>
+    <div class="log" id="c2Log"></div>
+  </div>
+</div>
+
+<script src="lib/pixi.min.js"></script>
+<script src="lib/live2d.min.js"></script>
+<script src="lib/live2dcubismcore.min.js"></script>
+<script src="lib/pixi-live2d-display.min.js"></script>
+
+<script>
+(function() {
+  'use strict';
+  window.PIXI = PIXI;
+
+  // ─── 日志工具 ───
+  function makeLogger(logId) {
+    var el = document.getElementById(logId);
+    return function(cls, msg) {
+      var d = document.createElement('div');
+      d.className = cls;
+      d.textContent = '[' + new Date().toISOString().substr(11,8) + '] ' + msg;
+      el.appendChild(d);
+      el.scrollTop = el.scrollHeight;
+    };
+  }
+
+  // ================================================================
+  // 左栏: Cubism 4 — Koharu
+  // ================================================================
+  (function() {
+    var log = makeLogger('c4Log');
+    var CV = document.getElementById('cv4');
+    var app = null, model = null;
+    var btns = { load:'c4Load', m0:'c4M0', m1:'c4M1', m2:'c4M2', rm:'c4Rm' };
+
+    function enable(b, v) { document.getElementById(b).disabled = !v; }
+
+    async function load() {
+      log('step', '=== Loading Koharu (Cubism 4) ===');
+      try {
+        var parent = CV.parentNode;
+        var w = parent.clientWidth || 480, h = parent.clientHeight || 360;
+        app = new PIXI.Application({
+          view: CV, width: w, height: h,
+          backgroundColor: 0x444466, antialias: true,
+          resolution: window.devicePixelRatio || 1, autoDensity: true
+        });
+        log('info', 'App: ' + w + 'x' + h);
+
+        model = await PIXI.live2d.Live2DModel.from('/live2d-model/Koharu/Koharu.model3.json');
+        model.autoUpdate = true;
+        var mh = model.height || 2;
+        var s = (app.screen.height * 0.85) / mh;
+        model.anchor.set(0.5, 0.5);
+        model.position.set(app.screen.width / 2, app.screen.height / 2);
+        model.scale.set(s);
+        app.stage.addChild(model);
+        log('info', 'Model loaded, scale=' + s.toFixed(3));
+
+        // 自动播放 body motion
+        log('step', 'Auto: Body[0]');
+        await model.motion('', 0);
+        log('info', 'Body[0] started');
+
+        enable(btns.load, false);
+        enable(btns.m0, true); enable(btns.m1, true); enable(btns.m2, true);
+        enable(btns.rm, true);
+        log('step', 'Ready');
+      } catch(e) {
+        log('error', 'Error: ' + e.message);
+      }
+    }
+
+    function play(idx, label) {
+      if (!model) return;
+      log('step', 'Motion: ' + label + '[' + idx + ']');
+      model.motion('', idx, 3).then(function() {
+        log('info', 'OK: ' + label);
+      }).catch(function(e) {
+        log('error', e.message);
+      });
+    }
+
+    function cleanup() {
+      if (model) { try { model.destroy(); } catch(e) {} model = null; }
+      if (app) { try { app.destroy(true,{children:true}); } catch(e) {} app = null; }
+      enable(btns.load, true);
+      enable(btns.m0, false); enable(btns.m1, false); enable(btns.m2, false);
+      enable(btns.rm, false);
+      log('info', 'Cleaned');
+    }
+
+    document.getElementById(btns.load).onclick = load;
+    document.getElementById(btns.m0).onclick = function() { play(0, 'Body'); };
+    document.getElementById(btns.m1).onclick = function() { play(1, 'Face1'); };
+    document.getElementById(btns.m2).onclick = function() { play(2, 'Face2'); };
+    document.getElementById(btns.rm).onclick = cleanup;
+    log('info', 'Ready — click Load');
+  })();
+
+  // ================================================================
+  // 右栏: Cubism 2.1 — l2d00003
+  // ================================================================
+  (function() {
+    var log = makeLogger('c2Log');
+    var CV = document.getElementById('cv2');
+    var app = null, model = null;
+    var MID = 'l2d00003';
+    var btns = { load:'c2Load', loop:'c2Loop', blues:'c2Blues', joy:'c2Joy', anger:'c2Anger', rm:'c2Rm' };
+
+    function enable(b, v) { document.getElementById(b).disabled = !v; }
+
+    async function load() {
+      log('step', '=== Loading l2d00003 (Cubism 2.1) ===');
+      try {
+        var parent = CV.parentNode;
+        var w = parent.clientWidth || 480, h = parent.clientHeight || 360;
+        app = new PIXI.Application({
+          view: CV, width: w, height: h,
+          backgroundColor: 0x224422, antialias: true,
+          resolution: window.devicePixelRatio || 1, autoDensity: true
+        });
+        log('info', 'App: ' + w + 'x' + h);
+
+        var url = '/live2d-model/' + MID + '/model.model.json';
+        model = await PIXI.live2d.Live2DModel.from(url);
+        model.autoUpdate = true;
+        var mh = model.height || 2;
+        var s = (app.screen.height * 0.85) / mh;
+        model.anchor.set(0.5, 0.5);
+        model.position.set(app.screen.width / 2, app.screen.height / 2);
+        model.scale.set(s);
+        app.stage.addChild(model);
+        log('info', 'Model loaded, scale=' + s.toFixed(3));
+
+        // 自动播放 loop motion
+        log('step', 'Auto: loop');
+        await model.motion('loop');
+        log('info', 'loop started');
+
+        enable(btns.load, false);
+        enable(btns.loop, true); enable(btns.blues, true);
+        enable(btns.joy, true); enable(btns.anger, true);
+        enable(btns.rm, true);
+        log('step', 'Ready');
+      } catch(e) {
+        log('error', 'Error: ' + e.message);
+      }
+    }
+
+    function play(name) {
+      if (!model) return;
+      log('step', 'Motion: ' + name);
+      model.motion(name, undefined, 3).then(function() {
+        log('info', 'OK: ' + name);
+      }).catch(function(e) {
+        log('error', e.message);
+      });
+    }
+
+    function cleanup() {
+      if (model) { try { model.destroy(); } catch(e) {} model = null; }
+      if (app) { try { app.destroy(true,{children:true}); } catch(e) {} app = null; }
+      enable(btns.load, true);
+      enable(btns.loop, false); enable(btns.blues, false);
+      enable(btns.joy, false); enable(btns.anger, false);
+      enable(btns.rm, false);
+      log('info', 'Cleaned');
+    }
+
+    document.getElementById(btns.load).onclick = load;
+    document.getElementById(btns.loop).onclick = function() { play('loop'); };
+    document.getElementById(btns.blues).onclick = function() { play('blues'); };
+    document.getElementById(btns.joy).onclick = function() { play('joy'); };
+    document.getElementById(btns.anger).onclick = function() { play('anger'); };
+    document.getElementById(btns.rm).onclick = cleanup;
+    log('info', 'Ready — click Load');
+  })();
+
+})();
+</script>
+</body>
+</html>

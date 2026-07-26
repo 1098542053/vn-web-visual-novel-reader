@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Live2D RAW Test</title></head>
+<body style="background:#111;color:#0f0;font-family:monospace;padding:10px;">
+<div id="log"></div>
+<canvas id="cv" style="width:854px;height:480px;border:1px solid #333;display:block;margin-top:10px;"></canvas>
+<script src="lib/live2d.min.js"></script>
+<script>
+var log = document.getElementById('log');
+var cv = document.getElementById('cv');
+function L(m) { log.innerHTML += m + '<br>'; }
+
+var gl = cv.getContext('webgl');
+L('GL: ' + !!gl);
+
+Live2D.init();
+L('Live2D inited');
+
+fetch('/live2d-model/l2d00003/model.model.json')
+  .then(function(r) { return r.json(); })
+  .then(function(cfg) {
+    L('JSON: ' + JSON.stringify(cfg));
+    return fetch('/live2d-model/l2d00003/' + (cfg.model || 'model.moc'))
+      .then(function(r) { return r.arrayBuffer(); });
+  })
+  .then(function(buf) {
+    L('MOC: ' + buf.byteLength + 'b');
+
+    Live2D.setGL(gl);
+
+    var model = Live2DModelWebGL.loadModel(gl, buf);
+    if (!model) { L('FAIL: loadModel'); return; }
+    L('Model: ' + !!model);
+
+    if (model.drawParamWebGL) {
+      model.drawParamWebGL.gl = gl;
+      try { model.drawParamWebGL.setGL(gl); } catch(e) {}
+      L('drawParamWebGL.gl FORCED');
+    }
+
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      L('Tex: ' + img.width + 'x' + img.height);
+      var tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      model.setTexture(0, tex);
+
+      L('Rendering 60 frames...');
+      var frames = 0;
+      function render() {
+        model.update();
+        model.draw();
+
+        if (frames === 0) {
+          var px = new Uint8Array(4);
+          gl.readPixels(427, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          L('Pixel: ' + px[0] + ',' + px[1] + ',' + px[2]);
+        }
+        if (frames === 59) {
+          var px = new Uint8Array(4);
+          gl.readPixels(427, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          L('After 60 frames - Pixel: ' + px[0] + ',' + px[1] + ',' + px[2]);
+          L('=== DONE ===');
+        }
+        frames++;
+        if (frames < 60) requestAnimationFrame(render);
+      }
+      render();
+    };
+    img.src = '/live2d-model/l2d00003/texture_00.png';
+  });
+</script>
+</body>
+</html>

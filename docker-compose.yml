@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  vn-web:
+    image: vn-web:latest
+    container_name: vn-reader
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - TZ=Asia/Shanghai
+    volumes:
+      # 资源文件挂载（由你手动将资源放入宿主机对应目录）
+      - /mnt/vn-data/Texture2D:/data/Texture2D:ro
+      - /mnt/vn-data/Sound:/data/Sound:ro
+      - /mnt/vn-data/Video:/data/Video:ro
+      - /mnt/vn-data/Scenario:/data/Scenario:ro
+      - /mnt/vn-data/Setting:/data/Setting:ro
+      - /mnt/vn-data/Live2D:/data/Live2D:ro
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VN-Web 功能测试套件</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a14; color: #c8c8d4; font-family: 'Consolas','Courier New',monospace; padding: 30px; }
+  h1 { color: #8af; font-size: 22px; margin-bottom: 6px; }
+  h1 span { color: #6a6; font-size: 13px; }
+  p.sub { color: #667; margin-bottom: 24px; font-size: 13px; }
+  .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .test-card { background: #111122; border: 1px solid #223; padding: 20px; transition: all .2s; }
+  .test-card:hover { border-color: #8af; background: #16162e; }
+  .test-card h2 { color: #8af; font-size: 16px; margin-bottom: 8px; }
+  .test-card .desc { color: #889; font-size: 12px; line-height: 1.6; margin-bottom: 14px; }
+  .test-card .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .test-card .tag { font-size: 10px; padding: 2px 8px; border: 1px solid #335; color: #889; }
+  .test-card .tag.auto { border-color: #363; color: #6a6; }
+  .test-card .tag.manual { border-color: #663; color: #ca6; }
+  .test-card .links { display: flex; gap: 10px; }
+  .test-card .links a { color: #8af; text-decoration: none; font-size: 13px; padding: 4px 12px; border: 1px solid #335; }
+  .test-card .links a:hover { background: #2a2a44; border-color: #8af; }
+  .header-bar { display: flex; align-items: center; gap: 20px; margin-bottom: 24px; }
+  .header-bar .back-link { color: #667; text-decoration: none; font-size: 13px; }
+  .header-bar .back-link:hover { color: #8af; }
+  hr { border: none; border-top: 1px solid #1a1a30; margin: 20px 0; }
+</style>
+</head>
+<body>
+<div class="header-bar">
+  <a href="/" class="back-link">&#8592; 返回主应用</a>
+  <span style="color:#334;">|</span>
+  <span style="color:#667;font-size:13px;">VN-Web 功能测试套件</span>
+</div>
+<h1>&#128300; 功能测试套件 <span>全自动测试各核心功能模块</span></h1>
+<p class="sub">每个测试页面专注单一功能，点击「开始测试」后全自动运行，日志控制台显示详细结果。</p>
+
+<div class="test-grid">
+  <div class="test-card">
+    <h2>&#9835; BGM 功能测试</h2>
+    <div class="desc">检测所有 BGM 文件的可访问性、播放状态、音量大小（通过 AudioContext 分析器检测实际音频输出）、循环播放能力。</div>
+    <div class="tags">
+      <span class="tag auto">全自动</span>
+      <span class="tag">音量检测</span>
+      <span class="tag">循环测试</span>
+    </div>
+    <div class="links"><a href="/test-bgm.html" target="_blank">&#9654; 打开测试</a></div>
+  </div>
+
+  <div class="test-card">
+    <h2>&#128247; 背景图功能测试</h2>
+    <div class="desc">检测所有背景图文件的可访问性、图像分辨率、16:9 比例符合度、是否为 2 的幂（GPU优化）、像素内容检测（验证图像是否真实显示）。</div>
+    <div class="tags">
+      <span class="tag auto">全自动</span>
+      <span class="tag">像素检测</span>
+      <span class="tag">比例验证</span>
+    </div>
+    <div class="links"><a href="/test-bg.html" target="_blank">&#9654; 打开测试</a></div>
+  </div>
+
+  <div class="test-card">
+    <h2>&#128214; 剧本功能测试</h2>
+    <div class="desc">按类型选择（角色剧情/主线/事件/R18），自动解析所有剧本文件，提取文本内容，统计文本行数，检测异常符号、乱码、异常编号等。</div>
+    <div class="tags">
+      <span class="tag auto">全自动</span>
+      <span class="tag">文本解析</span>
+      <span class="tag">异常检测</span>
+    </div>
+    <div class="links"><a href="/test-scenario.html" target="_blank">&#9654; 打开测试</a></div>
+  </div>
+</div>
+
+<hr>
+
+<h2 style="color:#8af;font-size:15px;margin-bottom:12px;">&#128200; 现存其他测试</h2>
+<div class="test-grid" style="grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));">
+  <div class="test-card" style="opacity:.8;">
+    <h2>&#128268; Live2D 测试</h2>
+    <div class="desc">Live2D 模型加载与渲染测试页面。</div>
+    <div class="tags"><span class="tag manual">半自动</span></div>
+    <div class="links"><a href="/test-live2d.html" target="_blank">&#9654; 打开</a><a href="/test-raw.html" target="_blank">Raw</a><a href="/test-minimal.html" target="_blank">Minimal</a><a href="/cubism4-test.html" target="_blank">Cubism4</a></div>
+  </div>
+  <div class="test-card" style="opacity:.8;">
+    <h2>&#128203; 回归测试</h2>
+    <div class="desc">Node.js 端回归测试，检查 API 接口、静态资源、文件可访问性。</div>
+    <div class="tags"><span class="tag">Node.js</span></div>
+    <div class="links"><a href="/js/novel-reader.test.js" target="_blank">&#9654; 查看脚本</a></div>
+  </div>
+</div>
+</body>
+</html>
